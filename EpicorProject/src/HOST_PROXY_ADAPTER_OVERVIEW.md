@@ -2,6 +2,8 @@
 
 This document explains how function execution is wired in this project, focused on the classes in the `src` folder.
 
+Related note: [Function Host Investigation](FUNCTION_HOST_INVESTIGATION.md)
+
 ## High-level architecture
 
 The runtime flow is:
