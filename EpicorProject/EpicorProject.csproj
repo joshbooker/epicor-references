@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>EpicorProject</RootNamespace>
+    <!-- Prevent the SDK from auto-globbing *.cs files; the src/ glob below is explicit. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   
   <ItemGroup>
@@ -15,14 +17,21 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Reference>
   </ItemGroup>
-  
+
   <ItemGroup>
-    <!-- Include all C# files from src folder -->
+    <!-- Entry point (not in src/ so it is listed explicitly) -->
+    <Compile Include="Program.cs" />
+    <!-- All function implementation source files -->
     <Compile Include="src\**\*.cs" />
-    <!-- Remove the default Program.cs if we have one in src -->
-    <Compile Remove="Program.cs" Condition="Exists('src\Program.cs')" />
   </ItemGroup>
   
+  <ItemGroup>
+    <!-- Grant the test project access to internal members -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>EpicorProject.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Common packages for Epicor development -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
@@ -32,3 +41,4 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 </Project>
+
