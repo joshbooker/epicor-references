@@ -7,6 +7,7 @@ namespace EFx.References.Implementation
     /// </summary>
     internal interface IServiceCallProvider
     {
-        void CallService<TService>(System.Action<TService> action);
+        void CallService<TService>(System.Action<TService> action)
+            where TService : class, System.IDisposable;
     }
 }

@@ -37,6 +37,7 @@
         /// <see cref="ServiceCallProvider"/> is <c>null</c> at runtime.
         /// </summary>
         protected new void CallService<TService>(System.Action<TService> action)
+            where TService : class, System.IDisposable
         {
             if (this.ServiceCallProvider != null)
                 this.ServiceCallProvider.CallService(action);

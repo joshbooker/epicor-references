@@ -9,7 +9,7 @@ and `GetAvailableReferences` Epicor Functions.
 ## Current Status
 
 **Branch:** `copilot/create-implementation-plan-for-tests`  
-**Last commit:** merge from main — adds `Ice.Data.Model.dll` + `Ice.Lib.Bpm.Shared.dll`
+**Last commit:** merge from main — adds `Ice.Customization.Sandbox.dll`, `Erp.Data.Model.dll`, `library.db.cs`, `library.db.interface.cs`
 
 **Completed work:**
 - Phase 0 (DLL investigation) — fully done; findings below
@@ -17,49 +17,45 @@ and `GetAvailableReferences` Epicor Functions.
 - Phase 2B (partial) — `IServiceCallProvider` interface and `CallService<T>` shadow in `function.base.cs`; `InternalsVisibleTo` on main project
 - Pre-existing build bug fixed — `EnableDefaultCompileItems=false` + explicit `<Compile>` glob
 - `Ice.Data.Model.dll` added from main → resolves `Ice.Tables` namespace ✅
-- `Ice.Lib.Bpm.Shared.dll` added from main → present in lib, but see blocker note below
+- `Ice.Lib.Bpm.Shared.dll` added from main ✅
+- `Ice.Customization.Sandbox.dll` added from main → resolves `Ice.Customization.Sandbox` ✅
+- `Erp.Data.Model.dll` added from main → resolves `Erp.Tables`, `Erp.ErpContext` as types ✅
+- `CallService<TService>` shadow constraint corrected to `where TService : class, IDisposable` ✅
 
-**Still blocked on 2 remaining assembly gaps.** 5 build errors remain (see next section).
+**Still blocked on 1 remaining assembly gap.** 1 build error remains (see next section).
 
 ---
 
-## Blocker: Remaining Missing `lib/` Assemblies
+## Blocker: Remaining Missing `lib/` Assembly
 
 ### What has been resolved
 
 | DLL | Namespace it provides | Status |
 |---|---|---|
-| `Ice.Data.Model.dll` | `Ice.Tables` | ✅ Added from main — errors resolved |
-| `Ice.Lib.Bpm.Shared.dll` | `Ice.Lib.Bpm.*`, `Epicor.Customization.*` | ✅ Added from main — but see note |
+| `Ice.Data.Model.dll` | `Ice.Tables` | ✅ Added from main |
+| `Ice.Lib.Bpm.Shared.dll` | `Ice.Lib.Bpm.*`, `Epicor.Customization.*` | ✅ Added from main |
+| `Ice.Customization.Sandbox.dll` | `Ice.Customization.Sandbox` | ✅ Added from main |
+| `Erp.Data.Model.dll` | `Erp.Tables`, `Erp.ErpContext` (entity types) | ✅ Added from main |
 
-**Important correction:** The original handoff predicted `Ice.Lib.Bpm.Shared.dll` would
-provide `Ice.Customization.Sandbox`. Inspection of the actual file shows it does NOT
-define that namespace (it contains `Epicor.Customization.*` and `Ice.Lib.Bpm.*` only).
-The `Ice.Customization.Sandbox` namespace must come from a different DLL — candidate
-name is `Ice.Customization.dll` or `Ice.Lib.Framework.dll`.
-
-### Still missing (5 build errors)
+### Still missing (1 build error)
 
 ```
-error CS0234: The type or namespace name 'Tables' does not exist in the namespace 'Erp'
-   → DownloadAssemblies.cs, GetAvailableReferences.cs
-
-error CS0234: The type or namespace name 'Customization' does not exist in the namespace 'Ice'
-   → DownloadAssemblies.cs, GetAvailableReferences.cs
-
-error CS0234: The type or namespace name 'ErpContext' does not exist in the namespace 'Erp'
-   → function.base.cs
+error CS1061: 'ErpContext' does not contain a definition for 'RollbackChangesAtReadOnlyTables'
+   → library.db.cs:51
 ```
 
-| Namespace / Type needed | Most likely DLL filename | Used in |
+`Erp.Data.Model.dll` defines the EF entity types but **not** the runtime methods on `ErpContext`
+(such as `RollbackChangesAtReadOnlyTables`). Those methods live in the full data-context
+implementation assembly, typically named `Erp.Data.dll`.
+
+| Method needed | Most likely DLL filename | Used in |
 |---|---|---|
-| `Erp` / `Erp.Tables` / `Erp.ErpContext` | `Erp.Data.dll` | `function.base.cs`; `DownloadAssemblies.cs`; `GetAvailableReferences.cs` |
-| `Ice.Customization.Sandbox` | `Ice.Customization.dll` (exact name unknown — NOT `Ice.Lib.Bpm.Shared.dll`) | `DownloadAssemblies.cs`; `GetAvailableReferences.cs` |
+| `ErpContext.RollbackChangesAtReadOnlyTables()` | `Erp.Data.dll` | `library.db.cs:51` |
 
-**Where to get them:** any machine with Epicor ERP server installed — look under
-`<EpicorServer>/Server/bin/`. All DLLs must match version `5.1.100.0`.
+**Where to get it:** any machine with Epicor ERP server installed — look under
+`<EpicorServer>/Server/bin/`. Must match version `5.1.100.0`.
 
-**Validation:** after dropping them in, run:
+**Validation:** after dropping it in, run:
 ```sh
 dotnet build EpicorProject/EpicorProject.csproj
 ```
@@ -624,11 +620,14 @@ EpicorProject/
     ... (existing DLLs)
     Ice.Data.Model.dll              ← ✅ ADDED (resolves Ice.Tables)
     Ice.Lib.Bpm.Shared.dll          ← ✅ ADDED
-    Erp.Data.dll                    ← ❌ STILL NEEDED (Erp.Tables, Erp.ErpContext)
-    Ice.Customization.dll           ← ❌ STILL NEEDED (Ice.Customization.Sandbox; exact filename unknown)
+    Ice.Customization.Sandbox.dll   ← ✅ ADDED (resolves Ice.Customization.Sandbox)
+    Erp.Data.Model.dll              ← ✅ ADDED (resolves Erp.Tables, Erp.ErpContext types)
+    Erp.Data.dll                    ← ❌ STILL NEEDED (ErpContext.RollbackChangesAtReadOnlyTables in library.db.cs)
   src/
-    function.base.cs                ← MODIFIED (seam already added)
-    IServiceCallProvider.cs         ← NEW (already added)
+    function.base.cs                ← MODIFIED (seam + Db/Dispose; constraint fixed)
+    IServiceCallProvider.cs         ← NEW (seam interface; constraint fixed)
+    library.db.cs                   ← NEW (from main; blocked on Erp.Data.dll)
+    library.db.interface.cs         ← NEW (from main)
     ... (all other src files unchanged)
 
 EpicorProject.Tests/
@@ -655,18 +654,20 @@ run-tests.sh                        ← TODO (Phase 7)
 
 1. [x] `Ice.Data.Model.dll` added to `lib/` — resolves `Ice.Tables`
 2. [x] `Ice.Lib.Bpm.Shared.dll` added to `lib/`
-3. [ ] Add `Erp.Data.dll` to `lib/` (resolves `Erp.Tables`, `Erp.ErpContext`)
-4. [ ] Add the DLL providing `Ice.Customization.Sandbox` to `lib/` (likely `Ice.Customization.dll`)
-5. [ ] `dotnet build EpicorProject/EpicorProject.csproj` → 0 errors
-6. [ ] Create `EpicorProject.Tests/src/Testing/MockServiceCallProvider.cs` (Phase 3)
-7. [ ] Create `EpicorProject.Tests/src/Testing/LocalFunctionHost.cs` (Phase 4)
-8. [ ] `dotnet build EpicorProject.Tests/EpicorProject.Tests.csproj` → 0 errors
-9. [ ] Create `GetAvailableReferencesTests.cs` (Phase 6)
-10. [ ] Create `DownloadAssembliesTests.cs` (Phase 6)
-11. [ ] Create `CrossFunctionCallTests.cs` (Phase 6)
-12. [ ] Create `IntegrationTests.cs` stub (Phase 6)
-13. [ ] `dotnet test EpicorProject.Tests` → all unit tests pass; integration tests skip
-14. [ ] (Optional) Create `EpicorRestServiceFactory.cs` (Phase 5 — REST fallback)
-15. [ ] `dotnet sln EpicorProject.slnx add EpicorProject.Tests/EpicorProject.Tests.csproj`
-16. [ ] Create `run-tests.sh` and `.vscode/tasks.json` (Phase 7)
-17. [ ] Update `devcontainer.json` `postCreateCommand` (Phase 7)
+3. [x] `Ice.Customization.Sandbox.dll` added to `lib/` — resolves `Ice.Customization.Sandbox`
+4. [x] `Erp.Data.Model.dll` added to `lib/` — resolves `Erp.Tables`, `Erp.ErpContext` types
+5. [x] `CallService<TService>` shadow constraint corrected to `where TService : class, IDisposable`
+6. [ ] Add `Erp.Data.dll` to `lib/` — resolves `ErpContext.RollbackChangesAtReadOnlyTables()` in `library.db.cs`
+7. [ ] `dotnet build EpicorProject/EpicorProject.csproj` → 0 errors
+8. [ ] Create `EpicorProject.Tests/src/Testing/MockServiceCallProvider.cs` (Phase 3)
+9. [ ] Create `EpicorProject.Tests/src/Testing/LocalFunctionHost.cs` (Phase 4)
+10. [ ] `dotnet build EpicorProject.Tests/EpicorProject.Tests.csproj` → 0 errors
+11. [ ] Create `GetAvailableReferencesTests.cs` (Phase 6)
+12. [ ] Create `DownloadAssembliesTests.cs` (Phase 6)
+13. [ ] Create `CrossFunctionCallTests.cs` (Phase 6)
+14. [ ] Create `IntegrationTests.cs` stub (Phase 6)
+15. [ ] `dotnet test EpicorProject.Tests` → all unit tests pass; integration tests skip
+16. [ ] (Optional) Create `EpicorRestServiceFactory.cs` (Phase 5 — REST fallback)
+17. [ ] `dotnet sln EpicorProject.slnx add EpicorProject.Tests/EpicorProject.Tests.csproj`
+18. [ ] Create `run-tests.sh` and `.vscode/tasks.json` (Phase 7)
+19. [ ] Update `devcontainer.json` `postCreateCommand` (Phase 7)
