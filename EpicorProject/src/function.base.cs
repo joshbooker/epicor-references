@@ -7,11 +7,15 @@
     {
         private readonly System.Lazy<ReferencesLibraryProxy> thisLibraryLazy;
 
+        private readonly System.Lazy<LibraryContext> dbLazy;
+        
         protected Function(Epicor.Functions.IFunctionHost host)
             : base(host)
         {
             this.thisLibraryLazy = new System.Lazy<ReferencesLibraryProxy>(
                 () => new ReferencesLibraryProxy(host));
+            this.dbLazy = new System.Lazy<LibraryContext>(
+                () => host.CreateContext<Erp.ErpContext, LibraryContext>(LibraryContext.Create));
         }
 
         protected sealed override string LibraryID => "References";
@@ -38,6 +42,22 @@
                 this.ServiceCallProvider.CallService(action);
             else
                 base.CallService(action);
+        }
+
+        protected ILibraryContext Db => this.dbLazy.Value;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (this.dbLazy.IsValueCreated
+                    && this.dbLazy.Value is System.IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+
+            base.Dispose(disposing);
         }
     }
 }
