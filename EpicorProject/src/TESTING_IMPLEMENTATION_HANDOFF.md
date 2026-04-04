@@ -9,35 +9,55 @@ and `GetAvailableReferences` Epicor Functions.
 ## Current Status
 
 **Branch:** `copilot/create-implementation-plan-for-tests`  
-**Last commit:** `e2e06d4` — test project scaffold + `IServiceCallProvider` seam  
+**Last commit:** merge from main — adds `Ice.Data.Model.dll` + `Ice.Lib.Bpm.Shared.dll`
 
 **Completed work:**
 - Phase 0 (DLL investigation) — fully done; findings below
 - Phase 1 (test project) — `EpicorProject.Tests/EpicorProject.Tests.csproj` created
 - Phase 2B (partial) — `IServiceCallProvider` interface and `CallService<T>` shadow in `function.base.cs`; `InternalsVisibleTo` on main project
 - Pre-existing build bug fixed — `EnableDefaultCompileItems=false` + explicit `<Compile>` glob
+- `Ice.Data.Model.dll` added from main → resolves `Ice.Tables` namespace ✅
+- `Ice.Lib.Bpm.Shared.dll` added from main → present in lib, but see blocker note below
 
-**Blocked on missing assemblies.** The project cannot compile until the DLLs listed in
-the next section are added to `EpicorProject/lib/`.  The rest of this document describes
-exactly what to do once they are present.
+**Still blocked on 2 remaining assembly gaps.** 5 build errors remain (see next section).
 
 ---
 
-## Blocker: Missing `lib/` Assemblies
+## Blocker: Remaining Missing `lib/` Assemblies
 
-The following namespaces are referenced in the source files but no matching DLL is in
-`EpicorProject/lib/`. All must match the same Epicor version (`5.1.100.0`) as the
-assemblies already present.
+### What has been resolved
 
-| Namespace / Type needed | Typical Epicor DLL filename | Used in |
+| DLL | Namespace it provides | Status |
 |---|---|---|
-| `Erp` / `Erp.Tables` / `Erp.ErpContext` | `Erp.Data.dll` | `function.base.cs` (generic type parameter); `DownloadAssemblies.cs`; `GetAvailableReferences.cs` |
-| `Ice.Customization.Sandbox` | `Ice.Lib.Bpm.Shared.dll` | `DownloadAssemblies.cs`; `GetAvailableReferences.cs` |
-| `Ice.Tables` | `Ice.Data.dll` or second version of `Ice.Lib.Shared.dll` | `DownloadAssemblies.cs`; `GetAvailableReferences.cs` |
+| `Ice.Data.Model.dll` | `Ice.Tables` | ✅ Added from main — errors resolved |
+| `Ice.Lib.Bpm.Shared.dll` | `Ice.Lib.Bpm.*`, `Epicor.Customization.*` | ✅ Added from main — but see note |
 
-**Where to get them:** any machine with Epicor ERP server or the Epicor function
-development kit installed — look under `<EpicorServer>/Server/bin/` or the SDK's
-`lib/` folder.
+**Important correction:** The original handoff predicted `Ice.Lib.Bpm.Shared.dll` would
+provide `Ice.Customization.Sandbox`. Inspection of the actual file shows it does NOT
+define that namespace (it contains `Epicor.Customization.*` and `Ice.Lib.Bpm.*` only).
+The `Ice.Customization.Sandbox` namespace must come from a different DLL — candidate
+name is `Ice.Customization.dll` or `Ice.Lib.Framework.dll`.
+
+### Still missing (5 build errors)
+
+```
+error CS0234: The type or namespace name 'Tables' does not exist in the namespace 'Erp'
+   → DownloadAssemblies.cs, GetAvailableReferences.cs
+
+error CS0234: The type or namespace name 'Customization' does not exist in the namespace 'Ice'
+   → DownloadAssemblies.cs, GetAvailableReferences.cs
+
+error CS0234: The type or namespace name 'ErpContext' does not exist in the namespace 'Erp'
+   → function.base.cs
+```
+
+| Namespace / Type needed | Most likely DLL filename | Used in |
+|---|---|---|
+| `Erp` / `Erp.Tables` / `Erp.ErpContext` | `Erp.Data.dll` | `function.base.cs`; `DownloadAssemblies.cs`; `GetAvailableReferences.cs` |
+| `Ice.Customization.Sandbox` | `Ice.Customization.dll` (exact name unknown — NOT `Ice.Lib.Bpm.Shared.dll`) | `DownloadAssemblies.cs`; `GetAvailableReferences.cs` |
+
+**Where to get them:** any machine with Epicor ERP server installed — look under
+`<EpicorServer>/Server/bin/`. All DLLs must match version `5.1.100.0`.
 
 **Validation:** after dropping them in, run:
 ```sh
@@ -72,13 +92,14 @@ ResolveService<T>()     → T               // ← this is the service-resolutio
 
 ### Why Path B (seam) was chosen instead of Path A (mock host)
 
-`IFunctionHost` references two assemblies not in the local `lib/` set:
-- `Ice.Lib.Bpm.Shared` (needed for `EnvironmentType`)
+`IFunctionHost` references two assemblies that were originally unavailable locally:
+- `Ice.Lib.Bpm.Shared` (needed for `EnvironmentType` return type)
 - `Ice.Data.Model` (needed for `GetIceContext` return type)
 
-Implementing `IFunctionHost` directly would require those DLLs even in the test project.
-Path B (shadow `CallService<T>` with an injectable `IServiceCallProvider`) avoids this
-entirely — the test project never needs to implement `IFunctionHost`.
+Both DLLs have since been added to `lib/`. However, Path B (shadow `CallService<T>`
+with an injectable `IServiceCallProvider`) remains the better approach because
+it keeps test code simpler — the test project never needs to provide a full
+`IFunctionHost` implementation with all its transitive dependencies.
 
 ### `FunctionBase<TDataContext, TInput, TOutput>` constructor
 
@@ -97,8 +118,8 @@ The 19-byte IL body was decoded. `CallService<T>`:
 3. Calls an internal method that goes through `IHost.ResolveService<T>()` on the host
 
 **Conclusion:** `CallService<T>` is NOT host-independent; it uses `IHost.ResolveService<T>()`.
-However, because we cannot implement `IFunctionHost` without the missing DLLs, we still
-use Path B (shadow the method) instead of mocking the host directly.
+Path B (shadow the method) is still the cleanest approach regardless — it avoids needing
+to wire a full `IFunctionHost` implementation in tests.
 
 ### `IFunctionRestHost` members
 
@@ -601,9 +622,10 @@ In the `customizations.vscode` block, add a `tasks` entry (VS Code tasks live in
 EpicorProject/
   lib/
     ... (existing DLLs)
-    Erp.Data.dll                    ← ADD THIS
-    Ice.Lib.Bpm.Shared.dll          ← ADD THIS (or equivalent for Ice.Customization.Sandbox)
-    Ice.Data.dll                    ← ADD THIS (or equivalent for Ice.Tables)
+    Ice.Data.Model.dll              ← ✅ ADDED (resolves Ice.Tables)
+    Ice.Lib.Bpm.Shared.dll          ← ✅ ADDED
+    Erp.Data.dll                    ← ❌ STILL NEEDED (Erp.Tables, Erp.ErpContext)
+    Ice.Customization.dll           ← ❌ STILL NEEDED (Ice.Customization.Sandbox; exact filename unknown)
   src/
     function.base.cs                ← MODIFIED (seam already added)
     IServiceCallProvider.cs         ← NEW (already added)
@@ -631,17 +653,20 @@ run-tests.sh                        ← TODO (Phase 7)
 
 ## Quick Checklist for Resuming Agent
 
-1. [ ] Verify missing DLLs have been added to `EpicorProject/lib/`
-2. [ ] `dotnet build EpicorProject/EpicorProject.csproj` → 0 errors
-3. [ ] Create `EpicorProject.Tests/src/Testing/MockServiceCallProvider.cs` (Phase 3)
-4. [ ] Create `EpicorProject.Tests/src/Testing/LocalFunctionHost.cs` (Phase 4)
-5. [ ] `dotnet build EpicorProject.Tests/EpicorProject.Tests.csproj` → 0 errors
-6. [ ] Create `GetAvailableReferencesTests.cs` (Phase 6)
-7. [ ] Create `DownloadAssembliesTests.cs` (Phase 6)
-8. [ ] Create `CrossFunctionCallTests.cs` (Phase 6)
-9. [ ] Create `IntegrationTests.cs` stub (Phase 6)
-10. [ ] `dotnet test EpicorProject.Tests` → all unit tests pass; integration tests skip
-11. [ ] (Optional) Create `EpicorRestServiceFactory.cs` (Phase 5 — REST fallback)
-12. [ ] `dotnet sln EpicorProject.slnx add EpicorProject.Tests/EpicorProject.Tests.csproj`
-13. [ ] Create `run-tests.sh` and `.vscode/tasks.json` (Phase 7)
-14. [ ] Update `devcontainer.json` `postCreateCommand` (Phase 7)
+1. [x] `Ice.Data.Model.dll` added to `lib/` — resolves `Ice.Tables`
+2. [x] `Ice.Lib.Bpm.Shared.dll` added to `lib/`
+3. [ ] Add `Erp.Data.dll` to `lib/` (resolves `Erp.Tables`, `Erp.ErpContext`)
+4. [ ] Add the DLL providing `Ice.Customization.Sandbox` to `lib/` (likely `Ice.Customization.dll`)
+5. [ ] `dotnet build EpicorProject/EpicorProject.csproj` → 0 errors
+6. [ ] Create `EpicorProject.Tests/src/Testing/MockServiceCallProvider.cs` (Phase 3)
+7. [ ] Create `EpicorProject.Tests/src/Testing/LocalFunctionHost.cs` (Phase 4)
+8. [ ] `dotnet build EpicorProject.Tests/EpicorProject.Tests.csproj` → 0 errors
+9. [ ] Create `GetAvailableReferencesTests.cs` (Phase 6)
+10. [ ] Create `DownloadAssembliesTests.cs` (Phase 6)
+11. [ ] Create `CrossFunctionCallTests.cs` (Phase 6)
+12. [ ] Create `IntegrationTests.cs` stub (Phase 6)
+13. [ ] `dotnet test EpicorProject.Tests` → all unit tests pass; integration tests skip
+14. [ ] (Optional) Create `EpicorRestServiceFactory.cs` (Phase 5 — REST fallback)
+15. [ ] `dotnet sln EpicorProject.slnx add EpicorProject.Tests/EpicorProject.Tests.csproj`
+16. [ ] Create `run-tests.sh` and `.vscode/tasks.json` (Phase 7)
+17. [ ] Update `devcontainer.json` `postCreateCommand` (Phase 7)
